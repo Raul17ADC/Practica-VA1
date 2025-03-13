@@ -9,18 +9,18 @@ import json
 def preprocesarImagen(imgPath):
     # Construir la ruta completa de la imagen
     completePath = os.path.join("Images", "testing", imgPath)
-    #print("Leyendo imagen desde:", completePath)
+    
     img = cv2.imread(completePath, 0)  # Leer la imagen en escala de grises
 
     # Calcular el histograma de la imagen
     hist = cv2.calcHist([img], [0], None, [256], [0, 256]).flatten()
 
     # Suavizar el histograma usando un filtro gaussiano
-    sigma = 2  # Ajusta el valor de sigma según sea necesario
+    sigma = 2  
     smoothed_hist = gaussian_filter1d(hist, sigma=sigma)
 
     # Encontrar los picos en el histograma suavizado
-    peaks, _ = find_peaks(smoothed_hist, prominence=500)  # Ajusta la prominencia según sea necesario
+    peaks, _ = find_peaks(smoothed_hist, prominence=500)  
 
     # Seleccionar el valor mínimo entre los dos máximos locales
     if len(peaks) >= 2:
@@ -112,7 +112,6 @@ def getListaDescriptoresLearning(listaImagenPuntos):
         completePath = os.path.join("Images", "learning", ruta)
 
         img = cv2.imread(completePath,0)
-        #img = preprocesarImagen(ruta) # Pruebo a pasarle las imágenes preprocesadas
         keypoints = [cv2.KeyPoint(float(x), float(y), 10) for x, y in esquinas]  # Convertir coordenadas en KeyPoint
         # Detectar keypoints y computar descriptores
         keypoints, descriptors = sift.compute(img, keypoints)
