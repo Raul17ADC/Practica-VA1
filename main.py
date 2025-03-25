@@ -223,6 +223,38 @@ def dividirImagen(ruta, descriptoresEntrenamiento):
 
     # Mostrar las esquinas detectadas
     mostrarEsquinasDetectadas(ruta, mejores_puntos)
+    if(len(mejores_puntos) > 3):
+        rectificar_imagen(ruta, mejores_puntos)
+
+def rectificar_imagen(ruta, mejores_puntos):
+    completePath = os.path.join("Images", "testing", ruta)
+    img_color = cv2.imread(completePath)
+
+    puntos = np.array(mejores_puntos, np.float32)
+    puntos[[2, 3]] = puntos[[3, 2]]  # Intercambia el tercer y cuarto punto
+
+    if(len(mejores_puntos) > 3):
+        '''
+        ancho_sup = np.sqrt((puntos[1][0] - puntos[0][0])**2 + (puntos[1][1] - puntos[0][1])**2) #distancia ancho superior
+        ancho_inf = np.sqrt((puntos[2][0] - puntos[3][0])**2 + (puntos[2][1] - puntos[3][1])**2) #distancia ancho inferior
+
+        ancho_max = max(ancho_sup, ancho_inf) #ancho mayor
+        '''
+        ancho_sup = np.linalg.norm(puntos[1] - puntos[0])
+        ancho_inf = np.linalg.norm(puntos[2] - puntos[3])
+
+        ancho_max = max(int(ancho_sup), int(ancho_inf))
+
+        nuevo_alto = int(1.41 * ancho_max)
+
+        #puntos finales
+        p_destino = np.array([[0, 0],[ancho_max, 0],[ancho_max, nuevo_alto],[0, nuevo_alto]], np.float32)
+
+        #calculamos la matriz de redimensionado
+        matriz = cv2.getPerspectiveTransform(puntos, p_destino)
+        imagen_final = cv2.warpPerspective(img_color, matriz,(ancho_max, nuevo_alto))
+        plt.imshow(cv2.cvtColor(imagen_final, cv2.COLOR_BGR2RGB))
+        plt.show()
 
 # Llamada a la función con imágenes de prueba
 """dividirImagen("Hoja_01.jpg", listaDescriptoresEntrenamiento)
