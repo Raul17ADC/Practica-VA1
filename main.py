@@ -221,8 +221,6 @@ def dividirImagen(ruta, descriptoresEntrenamiento):
         if mejor_keypoint:
             mejores_puntos.append(mejor_keypoint.pt)  # Guardamos coordenadas (x, y)
 
-    # Mostrar las esquinas detectadas
-    mostrarEsquinasDetectadas(ruta, mejores_puntos)
     if(len(mejores_puntos) > 3):
         rectificar_imagen(ruta, mejores_puntos)
     else:
