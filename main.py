@@ -279,8 +279,7 @@ def main():
         print("Uso: python <nombre_imagen_sin_extension>")
         sys.exit(1)
 
-    nombre_imagen = sys.argv[1]  # Tomamos el argumento sin extensión
-    imagen_path = f"{nombre_imagen}.jpg"  # Agregamos la extensión automáticamente
+    imagen_path = sys.argv[1]  # Tomamos el argumento sin extensión
 
     # Verifica que la imagen exista en Images/testing/
     ruta_completa = os.path.join("Images", "testing", imagen_path)
