@@ -225,6 +225,8 @@ def dividirImagen(ruta, descriptoresEntrenamiento):
     mostrarEsquinasDetectadas(ruta, mejores_puntos)
     if(len(mejores_puntos) > 3):
         rectificar_imagen(ruta, mejores_puntos)
+    else:
+        print(f"Advertencia: No se han encontrado suficientes esquinas en la imagen '{ruta}'.")
 
 def rectificar_imagen(ruta, mejores_puntos):
     completePath = os.path.join("Images", "testing", ruta)
@@ -254,6 +256,7 @@ def rectificar_imagen(ruta, mejores_puntos):
         matriz = cv2.getPerspectiveTransform(puntos, p_destino)
         imagen_final = cv2.warpPerspective(img_color, matriz,(ancho_max, nuevo_alto))
         plt.imshow(cv2.cvtColor(imagen_final, cv2.COLOR_BGR2RGB))
+        plt.axis("off")
         plt.show()
 
 # Llamada a la función con imágenes de prueba
