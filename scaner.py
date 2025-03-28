@@ -10,29 +10,33 @@ import json
 
 class ImagePreprocessor:
     @staticmethod
-    def preprocess(image_name):
-        path = os.path.join("Images", "testing", image_name)
-        img = cv2.imread(path, 0)
+    def preprocess(imgPath):
+        completePath = os.path.join("Images", "testing", imgPath)
+        img = cv2.imread(completePath, 0)
         hist = cv2.calcHist([img], [0], None, [256], [0, 256]).flatten()
-        smoothed = gaussian_filter1d(hist, sigma=2)
-        peaks, _ = find_peaks(smoothed, prominence=500)
+        smoothed_hist = gaussian_filter1d(hist, sigma=2)
+        peaks, _ = find_peaks(smoothed_hist, prominence=500)
 
         if len(peaks) >= 2:
-            peaks = sorted(peaks, key=lambda x: smoothed[x], reverse=True)[:3]
-            p1, p2 = sorted(peaks[:2])
-            valley = np.argmin(smoothed[p1:p2]) + p1
-            thresh = valley
+            peaks_sorted = sorted(peaks, key=lambda x: smoothed_hist[x], reverse=True)
+            p1, p2 = peaks_sorted[:2]
+            if abs(p1 - p2) < 30 and min(p1, p2) > 150:
+                p1 = peaks_sorted[1]
+                p2 = peaks_sorted[2]
+            p1, p2 = min(p1, p2), max(p1, p2)
+            valley_index = np.argmin(smoothed_hist[p1:p2]) + p1
+            threshold = valley_index
         else:
-            thresh = 128
+            threshold = 128
 
-        _, bin_img = cv2.threshold(img, thresh, 255, cv2.THRESH_BINARY)
+        _, thresholded_img = cv2.threshold(img, threshold, 255, cv2.THRESH_BINARY)
 
         k1 = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
         k2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (50, 50))
         k3 = cv2.getStructuringElement(cv2.MORPH_RECT, (80, 80))
         k4 = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 2))
 
-        img = cv2.erode(bin_img, k1)
+        img = cv2.erode(thresholded_img, k1)
         img = cv2.dilate(img, k1)
         img = cv2.dilate(img, k2)
         img = cv2.erode(img, k2)
@@ -46,121 +50,139 @@ class ImagePreprocessor:
 
 class DescriptorLoader:
     @staticmethod
-    def load_from_json(filename):
-        esquinas = []
-        with open(os.path.join("data", filename)) as f:
-            data = json.load(f)["_via_img_metadata"]
-            for img in data.values():
-                puntos = [
-                    (r["shape_attributes"]["cx"], r["shape_attributes"]["cy"])
-                    for r in img["regions"]
-                ]
-                esquinas.append((img["filename"], puntos))
-        return DescriptorLoader.compute_descriptors(esquinas)
+    def load_from_json(jsonFileName):
+        jsonPath = os.path.join("data", jsonFileName)
+        with open(jsonPath, "r") as file:
+            data = json.load(file)
+        img_metadata = data["_via_img_metadata"]
+        listaImagenPuntos = []
+        for img_id, img_info in img_metadata.items():
+            filename = img_info["filename"]
+            puntos = [
+                (region["shape_attributes"]["cx"], region["shape_attributes"]["cy"])
+                for region in img_info["regions"]
+            ]
+            listaImagenPuntos.append((filename, puntos))
+        return DescriptorLoader.compute_descriptors(listaImagenPuntos)
 
     @staticmethod
     def compute_descriptors(listaImagenPuntos):
+        train_descriptors = []
         sift = cv2.SIFT_create()
-        descriptores = []
         for nombre, puntos in listaImagenPuntos:
-            ruta = os.path.join("Images", "learning", nombre)
-            img = cv2.imread(ruta, 0)
-            keypoints = [cv2.KeyPoint(x, y, 10) for x, y in puntos]
-            _, desc = sift.compute(img, keypoints)
-            descriptores.append(desc)
-        return np.vstack(descriptores)
+            completePath = os.path.join("Images", "learning", nombre)
+            img = cv2.imread(completePath, 0)
+            keypoints = [cv2.KeyPoint(float(x), float(y), 10) for x, y in puntos]
+            keypoints, descriptors = sift.compute(img, keypoints)
+            train_descriptors.append(descriptors)
+        return np.vstack(train_descriptors)
 
 
 class CornerDetector:
     @staticmethod
-    def detect(image_name, descriptors_ref):
-        img_bin = ImagePreprocessor.preprocess(f"{image_name}.jpg")
+    def detect(ruta, descriptoresEntrenamiento):
+        img = ImagePreprocessor.preprocess(ruta)
         fast = cv2.FastFeatureDetector_create()
         fast.setNonmaxSuppression(False)
-        keypoints = fast.detect(img_bin, None)
+        kp = fast.detect(img, None)
 
-        cuadrantes = CornerDetector.divide_in_quadrants(keypoints, img_bin.shape)
+        height, width = img.shape
+        cuadrantes = {"PC": [], "SC": [], "TC": [], "CC": []}
+
+        for keypoint in kp:
+            x, y = keypoint.pt
+            if y < height // 2 and x < width // 2:
+                cuadrantes["PC"].append(keypoint)
+            elif y < height // 2 and x > width // 2:
+                cuadrantes["SC"].append(keypoint)
+            elif y > height // 2 and x < width // 2:
+                cuadrantes["TC"].append(keypoint)
+            elif y > height // 2 and x > width // 2:
+                cuadrantes["CC"].append(keypoint)
+
         sift = cv2.SIFT_create()
         bf = cv2.BFMatcher(cv2.NORM_L2)
-        puntos_finales = []
+        mejores_puntos = []
 
-        for kps in cuadrantes.values():
-            if not kps:
+        for keypoints in cuadrantes.values():
+            if len(keypoints) == 0:
                 continue
-            _, des = sift.compute(img_bin, kps)
+            kp, des = sift.compute(img, keypoints)
             if des is None:
                 continue
-            matches = bf.knnMatch(des, descriptors_ref, k=2)
-            mejor = min(
-                (m for m, n in matches if m.distance < 0.95 * n.distance),
-                default=None,
-                key=lambda m: m.distance,
-            )
-            if mejor:
-                puntos_finales.append(kps[mejor.queryIdx].pt)
+            matches = bf.knnMatch(des, descriptoresEntrenamiento, k=2)
+            menor_distancia = float("inf")
+            mejor_keypoint = None
+            for m, n in matches:
+                if m.distance < 0.95 * n.distance and m.distance < menor_distancia:
+                    menor_distancia = m.distance
+                    mejor_keypoint = kp[m.queryIdx]
+            if mejor_keypoint:
+                mejores_puntos.append(mejor_keypoint.pt)
 
-        return puntos_finales
-
-    @staticmethod
-    def divide_in_quadrants(keypoints, shape):
-        h, w = shape
-        zonas = {"PC": [], "SC": [], "TC": [], "CC": []}
-        for kp in keypoints:
-            x, y = kp.pt
-            if y < h // 2 and x < w // 2:
-                zonas["PC"].append(kp)
-            elif y < h // 2 and x > w // 2:
-                zonas["SC"].append(kp)
-            elif y > h // 2 and x < w // 2:
-                zonas["TC"].append(kp)
-            elif y > h // 2 and x > w // 2:
-                zonas["CC"].append(kp)
-        return zonas
+        return mejores_puntos
 
 
 class Rectifier:
     @staticmethod
-    def rectify(image_path, puntos):
-        img = cv2.imread(image_path)
-        puntos = np.array(puntos, dtype=np.float32)
+    def rectify(ruta, mejores_puntos):
+        completePath = os.path.join("Images", "testing", ruta)
+        img_color = cv2.imread(completePath)
+        puntos = np.array(mejores_puntos, np.float32)
         puntos[[2, 3]] = puntos[[3, 2]]
 
-        ancho_sup = np.linalg.norm(puntos[1] - puntos[0])
-        ancho_inf = np.linalg.norm(puntos[2] - puntos[3])
-        ancho = int(max(ancho_sup, ancho_inf))
-        alto = int(1.41 * ancho)
-
-        destino = np.array(
-            [[0, 0], [ancho, 0], [ancho, alto], [0, alto]], dtype=np.float32
-        )
-        M = cv2.getPerspectiveTransform(puntos, destino)
-        result = cv2.warpPerspective(img, M, (ancho, alto))
-
-        plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
-        plt.axis("off")
-        plt.show()
+        if len(mejores_puntos) > 3:
+            ancho_sup = np.linalg.norm(puntos[1] - puntos[0])
+            ancho_inf = np.linalg.norm(puntos[2] - puntos[3])
+            ancho_max = max(int(ancho_sup), int(ancho_inf))
+            nuevo_alto = int(1.41 * ancho_max)
+            p_destino = np.array(
+                [[0, 0], [ancho_max, 0], [ancho_max, nuevo_alto], [0, nuevo_alto]],
+                np.float32,
+            )
+            matriz = cv2.getPerspectiveTransform(puntos, p_destino)
+            imagen_final = cv2.warpPerspective(
+                img_color, matriz, (ancho_max, nuevo_alto)
+            )
+            plt.imshow(cv2.cvtColor(imagen_final, cv2.COLOR_BGR2RGB))
+            plt.axis("off")
+            plt.show()
 
 
 class DocumentScanner:
-    def __init__(self, image_name):
-        self.image_name = image_name
-        self.descriptors = None
-        self.image_path = os.path.join("Images", "testing", f"{image_name}.jpg")
+    def __init__(self, descriptores):
+        self.descriptores = descriptores
 
-    def run(self):
-        self.descriptors = DescriptorLoader.load_from_json("esquinas_learning.json")
-        puntos = CornerDetector.detect(self.image_name, self.descriptors)
-        if len(puntos) == 4:
-            Rectifier.rectify(self.image_path, puntos)
+    def run(self, imagen_nombre):
+        imagen_path = f"{imagen_nombre}.jpg"
+        ruta_completa = os.path.join("Images", "testing", imagen_path)
+        if not os.path.exists(ruta_completa):
+            print(f"Error: No se encontró el archivo {ruta_completa}")
+            return
+
+        puntos = CornerDetector.detect(imagen_path, self.descriptores)
+        if len(puntos) > 3:
+            Rectifier.rectify(imagen_path, puntos)
         else:
-            print("No se encontraron suficientes esquinas.")
+            print(
+                f"Advertencia: No se han encontrado suficientes esquinas en la imagen '{imagen_path}'."
+            )
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Uso: python scaner.py <nombre_imagen_sin_extension>")
-        sys.exit(1)
+    descriptores = DescriptorLoader.load_from_json("esquinas_learning.json")
+    scanner = DocumentScanner(descriptores)
 
-    image_name = sys.argv[1]
-    scanner = DocumentScanner(image_name)
-    scanner.run()
+    if len(sys.argv) == 2:
+        # Procesamiento individual (por argumento)
+        nombre_imagen = sys.argv[1]
+        scanner.run(nombre_imagen)
+
+    else:
+        # Procesamiento por lotes (comentarlo si solo quieres procesamiento individual)
+        print("Procesando todas las imágenes en Images/testing...")
+        carpeta = os.path.join("Images", "testing")
+        imagenes = [f for f in os.listdir(carpeta) if f.endswith(".jpg")]
+        for img in sorted(imagenes):
+            nombre_base = os.path.splitext(img)[0]
+            scanner.run(nombre_base)
