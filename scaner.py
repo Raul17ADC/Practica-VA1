@@ -101,13 +101,6 @@ class ShapeDetector:
         puntos_ordenados = [p for _, p in sorted(zip(distancias, puntos), reverse=True)]
         return puntos_ordenados[:4]
 
-
-import os
-import json
-import numpy as np
-import cv2
-
-
 class DescriptorLoader:
     @staticmethod
     def load_from_json(jsonFileName):
@@ -187,7 +180,7 @@ class CornerDetector:
             menor_distancia = float("inf")
             mejor_keypoint = None
             for m, n in matches:
-                if m.distance < 0.95 * n.distance and m.distance < menor_distancia:
+                if m.distance < n.distance and m.distance < menor_distancia:
                     menor_distancia = m.distance
                     mejor_keypoint = kp[m.queryIdx]
             if mejor_keypoint:
