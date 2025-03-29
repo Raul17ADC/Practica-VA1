@@ -10,18 +10,18 @@ import json
 def preprocesarImagen(imgPath):
     # Construir la ruta completa de la imagen
     completePath = os.path.join("Images", "testing", imgPath)
-    
+
     img = cv2.imread(completePath, 0)  # Leer la imagen en escala de grises
 
     # Calcular el histograma de la imagen
     hist = cv2.calcHist([img], [0], None, [256], [0, 256]).flatten()
 
     # Suavizar el histograma usando un filtro gaussiano
-    sigma = 2  
+    sigma = 2
     smoothed_hist = gaussian_filter1d(hist, sigma=sigma)
 
     # Encontrar los picos en el histograma suavizado
-    peaks, _ = find_peaks(smoothed_hist, prominence=500)  
+    peaks, _ = find_peaks(smoothed_hist, prominence=500)
 
     # Seleccionar el valor mínimo entre los dos máximos locales
     if len(peaks) >= 2:
@@ -52,12 +52,6 @@ def preprocesarImagen(imgPath):
     eroded_image = cv2.erode(thresholded_img, kernel)
     result_image = cv2.dilate(eroded_image, kernel)
 
-    #Resultado tras apertura
-    """plt.imshow(result_image, cmap='gray')
-    plt.title("Resultado tras apertura")
-    plt.axis('off')
-    plt.show()"""
-
     #Cierre con kernel de elipse 20x20
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (50, 50))
     result_image = cv2.dilate(result_image, kernel)
@@ -73,6 +67,77 @@ def preprocesarImagen(imgPath):
     result_image = cv2.dilate(result_image, kernel)
     result_image = cv2.erode(result_image, kernel)
     return result_image
+
+def detectar_formas(imgPath):
+    # Definir umbral mínimo de longitud de lado
+    UMBRAL_MIN_LADO = 600  # Ajusta este valor según lo que consideres "pequeño"
+
+    # Cargar imagen en escala de grises
+    img = preprocesarImagen(imgPath)
+
+    # Aplicar umbral si no está binaria
+    _, thresh = cv2.threshold(img, 128, 255, cv2.THRESH_BINARY)
+
+    # Encontrar contornos
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Crear imágenes para visualizar resultados
+    img_result = np.zeros_like(thresh)  # Imagen en negro para pintar el rectángulo corregido
+    img_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)  # Imagen en color para visualizar los contornos
+
+    # Buscar el contorno más grande
+    if contours:
+        largest_contour = max(contours, key=cv2.contourArea)
+
+        # Aproximar el contorno a una forma poligonal
+        epsilon = 0.02 * cv2.arcLength(largest_contour, True)
+        approx = cv2.approxPolyDP(largest_contour, epsilon, True)
+
+        # Dibujar el contorno detectado en la imagen original (verde)
+        cv2.drawContours(img_color, [approx], 0, (0, 255, 0), 30)
+
+        # Comprobamos si se detectaron al menos 4 puntos
+        if len(approx) >= 4:
+            # Obtener los cuatro puntos detectados
+            puntos = approx[:, 0, :]  # Extraer coordenadas (x, y)
+
+            # Ordenar puntos por posición Y (para diferenciar arriba y abajo)
+            puntos = sorted(puntos, key=lambda p: (p[1], p[0]))
+            arriba = sorted(puntos[:2], key=lambda p: p[0])  # Ordenar por X
+            abajo = sorted(puntos[-2:], key=lambda p: p[0])  # Últimos 2 puntos para la parte inferior
+
+            # Si hay más de 4 puntos, aplicar la selección de esquinas
+            if len(approx) > 4:
+                puntos_seleccionados = seleccionar_esquinas(puntos, img.shape)
+            else:
+                # Si hay 4 puntos, se usan tal cual están
+                puntos_seleccionados = [arriba[0], arriba[1], abajo[1], abajo[0]]
+
+            # Construir el nuevo contorno con las esquinas seleccionadas
+            nuevo_contorno = np.array([puntos_seleccionados[0], puntos_seleccionados[1], puntos_seleccionados[2], puntos_seleccionados[3]], dtype=np.int32)
+
+            # Dibujar el nuevo contorno en blanco en la imagen de resultado
+            cv2.drawContours(img_result, [nuevo_contorno], 0, 255, thickness=cv2.FILLED)
+        else:
+            print("No se detectaron 4 vértices en el contorno más grande.")
+
+    else:
+        print("No se detectaron contornos en la imagen.")
+
+    return img_result  # Devolver la imagen procesada
+
+def seleccionar_esquinas(puntos, shape):
+    # Obtener el centro de la imagen
+    centro = (shape[1] // 2, shape[0] // 2)
+
+    # Calcular las distancias al centro para cada punto
+    distancias = [np.linalg.norm(np.array(p) - np.array(centro)) for p in puntos]
+
+    # Ordenar los puntos por su distancia al centro (las esquinas más alejadas del centro serán las primeras)
+    puntos_ordenados = [p for _, p in sorted(zip(distancias, puntos), reverse=True)]
+
+    # Seleccionar las 4 esquinas más alejadas del centro
+    return puntos_ordenados[:4]
 
 def getListaImgEsquinas(jsonFileName):
     # Construir la ruta completa del archivo JSON
@@ -153,7 +218,7 @@ def dividirImagen(ruta, descriptoresEntrenamiento):
     #img_color = cv2.cvtColor(img_color, cv2.COLOR_BGR2RGB)
     #img = cv2.imread(ruta, 0)  # Imagen en escala de grises
 
-    img = preprocesarImagen(ruta)
+    img = detectar_formas(ruta)
     #plt.imshow(img, cmap="gray")
     #plt.axis("off")
     #plt.show()
