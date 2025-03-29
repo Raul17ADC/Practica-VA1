@@ -47,6 +47,61 @@ class ImagePreprocessor:
 
         return img
 
+class ShapeDetector:
+    @staticmethod
+    def detectar_formas(imgPath):
+        UMBRAL_MIN_LADO = 600  # Ajusta según necesidad
+
+        # Procesar la imagen (usando el preprocesamiento original)
+        img = ImagePreprocessor.preprocess(imgPath)
+
+        # Aplicar umbral si no está binaria
+        _, thresh = cv2.threshold(img, 128, 255, cv2.THRESH_BINARY)
+
+        # Encontrar contornos
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Imagen para visualizar resultado
+        img_result = np.zeros_like(thresh)
+        img_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
+
+        if contours:
+            largest_contour = max(contours, key=cv2.contourArea)
+
+            # Aproximar el contorno
+            epsilon = 0.02 * cv2.arcLength(largest_contour, True)
+            approx = cv2.approxPolyDP(largest_contour, epsilon, True)
+
+            cv2.drawContours(img_color, [approx], 0, (0, 255, 0), 30)
+
+            if len(approx) >= 4:
+                puntos = approx[:, 0, :]
+                puntos = sorted(puntos, key=lambda p: (p[1], p[0]))
+                arriba = sorted(puntos[:2], key=lambda p: p[0])
+                abajo = sorted(puntos[-2:], key=lambda p: p[0])
+
+                if len(approx) > 4:
+                    puntos_seleccionados = ShapeDetector.seleccionar_esquinas(puntos, img.shape)
+                else:
+                    puntos_seleccionados = [arriba[0], arriba[1], abajo[1], abajo[0]]
+
+                nuevo_contorno = np.array(puntos_seleccionados, dtype=np.int32)
+                cv2.drawContours(img_result, [nuevo_contorno], 0, 255, thickness=cv2.FILLED)
+            else:
+                print("No se detectaron 4 vértices en el contorno más grande.")
+        else:
+            print("No se detectaron contornos en la imagen.")
+
+        return img_result
+
+    @staticmethod
+    def seleccionar_esquinas(puntos, shape):
+        centro = (shape[1] // 2, shape[0] // 2)
+        distancias = [np.linalg.norm(np.array(p) - np.array(centro)) for p in puntos]
+        puntos_ordenados = [p for _, p in sorted(zip(distancias, puntos), reverse=True)]
+        return puntos_ordenados[:4]
+
+
 
 class DescriptorLoader:
     @staticmethod
@@ -81,7 +136,7 @@ class DescriptorLoader:
 class CornerDetector:
     @staticmethod
     def detect(ruta, descriptoresEntrenamiento):
-        img = ImagePreprocessor.preprocess(ruta)
+        img = ShapeDetector.detectar_formas(ruta)
         fast = cv2.FastFeatureDetector_create()
         fast.setNonmaxSuppression(False)
         kp = fast.detect(img, None)
