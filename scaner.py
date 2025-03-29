@@ -154,7 +154,7 @@ class DocumentScanner:
         self.descriptores = descriptores
 
     def run(self, imagen_nombre):
-        imagen_path = f"{imagen_nombre}.jpg"
+        imagen_path = sys.argv[1]  # Tomamos el argumento sin extensión
         ruta_completa = os.path.join("Images", "testing", imagen_path)
         if not os.path.exists(ruta_completa):
             print(f"Error: No se encontró el archivo {ruta_completa}")
