@@ -102,13 +102,28 @@ class ShapeDetector:
         return puntos_ordenados[:4]
 
 
+import os
+import json
+import numpy as np
+import cv2
+
 
 class DescriptorLoader:
     @staticmethod
     def load_from_json(jsonFileName):
         jsonPath = os.path.join("data", jsonFileName)
+        descriptorFilePath = os.path.join("data", "descriptores.npy")
+
+        # Verificamos si ya existe el archivo con los descriptores
+        if os.path.exists(descriptorFilePath):
+            print("Cargando descriptores desde el archivo...")
+            return np.load(descriptorFilePath)
+
+        # Si no existe, calculamos los descriptores y los guardamos
+        print("Calculando descriptores y guardándolos en archivo...")
         with open(jsonPath, "r") as file:
             data = json.load(file)
+
         img_metadata = data["_via_img_metadata"]
         listaImagenPuntos = []
         for img_id, img_info in img_metadata.items():
@@ -118,7 +133,10 @@ class DescriptorLoader:
                 for region in img_info["regions"]
             ]
             listaImagenPuntos.append((filename, puntos))
-        return DescriptorLoader.compute_descriptors(listaImagenPuntos)
+
+        descriptores = DescriptorLoader.compute_descriptors(listaImagenPuntos)
+        np.save(descriptorFilePath, descriptores)  # Guardamos los descriptores en un archivo numpy (.npy)
+        return descriptores
 
     @staticmethod
     def compute_descriptors(listaImagenPuntos):
