@@ -11,6 +11,7 @@ import json
 class ImagePreprocessor:
     @staticmethod
     def preprocess(imgPath):
+        # Carga la imagen en escala de grises y aplica filtrado morfológico y umbralizado adaptativo
         completePath = os.path.join("Images", "testing", imgPath)
         img = cv2.imread(completePath, 0)
         hist = cv2.calcHist([img], [0], None, [256], [0, 256]).flatten()
@@ -31,6 +32,7 @@ class ImagePreprocessor:
 
         _, thresholded_img = cv2.threshold(img, threshold, 255, cv2.THRESH_BINARY)
 
+        # Aplicación de operaciones morfológicas de apertura y cierre
         k1 = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
         k2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (50, 50))
         k3 = cv2.getStructuringElement(cv2.MORPH_RECT, (80, 80))
@@ -47,31 +49,21 @@ class ImagePreprocessor:
 
         return img
 
+
 class ShapeDetector:
     @staticmethod
     def detectar_formas(imgPath):
-        UMBRAL_MIN_LADO = 600
-
-        # Procesar la imagen (usando el preprocesamiento original)
+        # Detecta el contorno principal del documento y aproxima sus esquinas
         img = ImagePreprocessor.preprocess(imgPath)
-
-        # Aplicar umbral si no está binaria
         _, thresh = cv2.threshold(img, 128, 255, cv2.THRESH_BINARY)
-
-        # Encontrar contornos
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        # Imagen para visualizar resultado
         img_result = np.zeros_like(thresh)
         img_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
 
         if contours:
             largest_contour = max(contours, key=cv2.contourArea)
-
-            # Aproximar el contorno
             epsilon = 0.02 * cv2.arcLength(largest_contour, True)
             approx = cv2.approxPolyDP(largest_contour, epsilon, True)
-
             cv2.drawContours(img_color, [approx], 0, (0, 255, 0), 30)
 
             if len(approx) >= 4:
@@ -79,12 +71,10 @@ class ShapeDetector:
                 puntos = sorted(puntos, key=lambda p: (p[1], p[0]))
                 arriba = sorted(puntos[:2], key=lambda p: p[0])
                 abajo = sorted(puntos[-2:], key=lambda p: p[0])
-
                 if len(approx) > 4:
                     puntos_seleccionados = ShapeDetector.seleccionar_esquinas(puntos, img.shape)
                 else:
                     puntos_seleccionados = [arriba[0], arriba[1], abajo[1], abajo[0]]
-
                 nuevo_contorno = np.array(puntos_seleccionados, dtype=np.int32)
                 cv2.drawContours(img_result, [nuevo_contorno], 0, 255, thickness=cv2.FILLED)
             else:
@@ -96,43 +86,38 @@ class ShapeDetector:
 
     @staticmethod
     def seleccionar_esquinas(puntos, shape):
+        # Selecciona las 4 esquinas más alejadas del centro de la imagen
         centro = (shape[1] // 2, shape[0] // 2)
         distancias = [np.linalg.norm(np.array(p) - np.array(centro)) for p in puntos]
         puntos_ordenados = [p for _, p in sorted(zip(distancias, puntos), reverse=True)]
         return puntos_ordenados[:4]
 
+
 class DescriptorLoader:
     @staticmethod
     def load_from_json(jsonFileName):
+        # Carga los puntos de interés del archivo JSON y calcula (o carga) los descriptores SIFT
         jsonPath = os.path.join("data", jsonFileName)
         descriptorFilePath = os.path.join("data", "descriptores.npy")
-
-        # Verificamos si ya existe el archivo con los descriptores
         if os.path.exists(descriptorFilePath):
             print("Cargando descriptores desde el archivo...")
             return np.load(descriptorFilePath)
-
-        # Si no existe, calculamos los descriptores y los guardamos
         print("Calculando descriptores y guardándolos en archivo...")
         with open(jsonPath, "r") as file:
             data = json.load(file)
-
         img_metadata = data["_via_img_metadata"]
         listaImagenPuntos = []
         for img_id, img_info in img_metadata.items():
             filename = img_info["filename"]
-            puntos = [
-                (region["shape_attributes"]["cx"], region["shape_attributes"]["cy"])
-                for region in img_info["regions"]
-            ]
+            puntos = [(region["shape_attributes"]["cx"], region["shape_attributes"]["cy"]) for region in img_info["regions"]]
             listaImagenPuntos.append((filename, puntos))
-
         descriptores = DescriptorLoader.compute_descriptors(listaImagenPuntos)
-        np.save(descriptorFilePath, descriptores)  # Guardamos los descriptores en un archivo numpy (.npy)
+        np.save(descriptorFilePath, descriptores)
         return descriptores
 
     @staticmethod
     def compute_descriptors(listaImagenPuntos):
+        # Calcula los descriptores SIFT a partir de las esquinas dadas
         train_descriptors = []
         sift = cv2.SIFT_create()
         for nombre, puntos in listaImagenPuntos:
@@ -143,18 +128,17 @@ class DescriptorLoader:
             train_descriptors.append(descriptors)
         return np.vstack(train_descriptors)
 
+
 class CornerDetector:
     @staticmethod
     def detect(ruta, descriptoresEntrenamiento):
+        # Detecta los puntos clave en cada cuadrante de la imagen y selecciona los mejores según SIFT
         img = ShapeDetector.detectar_formas(ruta)
         fast = cv2.FastFeatureDetector_create()
         fast.setNonmaxSuppression(False)
         kp = fast.detect(img, None)
-
         height, width = img.shape
         cuadrantes = {"PC": [], "SC": [], "TC": [], "CC": []}
-
-        # Clasificamos los keypoints según el cuadrante en el que se encuentren
         for keypoint in kp:
             x, y = keypoint.pt
             if y < height // 2 and x < width // 2:
@@ -165,11 +149,9 @@ class CornerDetector:
                 cuadrantes["TC"].append(keypoint)
             elif y > height // 2 and x > width // 2:
                 cuadrantes["CC"].append(keypoint)
-
         sift = cv2.SIFT_create()
         bf = cv2.BFMatcher(cv2.NORM_L2)
         mejores_puntos = []
-
         for keypoints in cuadrantes.values():
             if len(keypoints) == 0:
                 continue
@@ -185,68 +167,54 @@ class CornerDetector:
                     mejor_keypoint = kp[m.queryIdx]
             if mejor_keypoint:
                 mejores_puntos.append(mejor_keypoint.pt)
-
         return mejores_puntos
+
 
 class Rectifier:
     @staticmethod
     def rectify(ruta, mejores_puntos):
+        # Aplica transformación de perspectiva a partir de las esquinas detectadas para rectificar la imagen
         completePath = os.path.join("Images", "testing", ruta)
         img_color = cv2.imread(completePath)
         puntos = np.array(mejores_puntos, np.float32)
         puntos[[2, 3]] = puntos[[3, 2]]
-
         if len(mejores_puntos) > 3:
             ancho_sup = np.linalg.norm(puntos[1] - puntos[0])
             ancho_inf = np.linalg.norm(puntos[2] - puntos[3])
             ancho_max = max(int(ancho_sup), int(ancho_inf))
             nuevo_alto = int(1.41 * ancho_max)
-            p_destino = np.array(
-                [[0, 0], [ancho_max, 0], [ancho_max, nuevo_alto], [0, nuevo_alto]],
-                np.float32,
-            )
+            p_destino = np.array([[0, 0], [ancho_max, 0], [ancho_max, nuevo_alto], [0, nuevo_alto]], np.float32)
             matriz = cv2.getPerspectiveTransform(puntos, p_destino)
-            imagen_final = cv2.warpPerspective(
-                img_color, matriz, (ancho_max, nuevo_alto)
-            )
+            imagen_final = cv2.warpPerspective(img_color, matriz, (ancho_max, nuevo_alto))
             plt.imshow(cv2.cvtColor(imagen_final, cv2.COLOR_BGR2RGB))
             plt.axis("off")
             plt.show()
+
 
 class DocumentScanner:
     def __init__(self, descriptores):
         self.descriptores = descriptores
 
     def run(self, imagen_nombre):
-        imagen_path = sys.argv[1]  # Tomamos el argumento sin extensión
+        # Ejecuta el pipeline completo: detección de esquinas y rectificación
+        imagen_path = imagen_nombre
         ruta_completa = os.path.join("Images", "testing", imagen_path)
         if not os.path.exists(ruta_completa):
             print(f"Error: No se encontró el archivo {ruta_completa}")
             return
-
         puntos = CornerDetector.detect(imagen_path, self.descriptores)
         if len(puntos) > 3:
             Rectifier.rectify(imagen_path, puntos)
         else:
-            print(
-                f"Advertencia: No se han encontrado suficientes esquinas en la imagen '{imagen_path}'."
-            )
+            print(f"Advertencia: No se han encontrado suficientes esquinas en la imagen '{imagen_path}'.")
 
 
 if __name__ == "__main__":
+    # Punto de entrada principal: espera recibir una imagen como argumento
+    if len(sys.argv) != 2:
+        print("Uso: python scaner.py <nombre_imagen>.jpg")
+        sys.exit(1)
     descriptores = DescriptorLoader.load_from_json("esquinas_learning.json")
     scanner = DocumentScanner(descriptores)
-
-    if len(sys.argv) == 2:
-        # Procesamiento individual (por argumento)
-        nombre_imagen = sys.argv[1]
-        scanner.run(nombre_imagen)
-
-    else:
-        # Procesamiento por lotes (comentarlo si solo quieres procesamiento individual)
-        print("Procesando todas las imágenes en Images/testing...")
-        carpeta = os.path.join("Images", "testing")
-        imagenes = [f for f in os.listdir(carpeta) if f.endswith(".jpg")]
-        for img in sorted(imagenes):
-            nombre_base = os.path.splitext(img)[0]
-            scanner.run(nombre_base)
+    nombre_imagen = sys.argv[1]
+    scanner.run(nombre_imagen)
