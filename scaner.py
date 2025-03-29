@@ -50,7 +50,7 @@ class ImagePreprocessor:
 class ShapeDetector:
     @staticmethod
     def detectar_formas(imgPath):
-        UMBRAL_MIN_LADO = 600  # Ajusta según necesidad
+        UMBRAL_MIN_LADO = 600
 
         # Procesar la imagen (usando el preprocesamiento original)
         img = ImagePreprocessor.preprocess(imgPath)
@@ -143,7 +143,6 @@ class DescriptorLoader:
             train_descriptors.append(descriptors)
         return np.vstack(train_descriptors)
 
-
 class CornerDetector:
     @staticmethod
     def detect(ruta, descriptoresEntrenamiento):
@@ -155,6 +154,7 @@ class CornerDetector:
         height, width = img.shape
         cuadrantes = {"PC": [], "SC": [], "TC": [], "CC": []}
 
+        # Clasificamos los keypoints según el cuadrante en el que se encuentren
         for keypoint in kp:
             x, y = keypoint.pt
             if y < height // 2 and x < width // 2:
@@ -188,7 +188,6 @@ class CornerDetector:
 
         return mejores_puntos
 
-
 class Rectifier:
     @staticmethod
     def rectify(ruta, mejores_puntos):
@@ -213,7 +212,6 @@ class Rectifier:
             plt.imshow(cv2.cvtColor(imagen_final, cv2.COLOR_BGR2RGB))
             plt.axis("off")
             plt.show()
-
 
 class DocumentScanner:
     def __init__(self, descriptores):
